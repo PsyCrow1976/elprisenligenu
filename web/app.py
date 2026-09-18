@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote
@@ -27,8 +27,10 @@ from fasthtml.common import (
     Nav,
     Option,
     P,
+    Pre,
     Select,
     Span,
+    Strong,
     Style,
     Table,
     Tbody,
@@ -45,6 +47,7 @@ from script.exceptions import PriceError
 from script.models import ChargeBand
 from web import db
 from web.ingest import price_api, price_area, pull_day, pull_month, pull_year, reload_settings, settings
+from web.jobs import JOB_NAME, instance_name, interval_hours, log_path, scheduler
 
 TIMEZONE = ZoneInfo("Europe/Copenhagen")
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -88,11 +91,19 @@ table { font-variant-numeric: tabular-nums; font-size: 0.92rem; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   gap: 0.8rem; }
 .legend dt { font-weight: 650; }
+nav.top-nav { display: flex; gap: 0.9rem; }
+nav.top-nav a { color: #b45309; font-weight: 650; }
+.badge { font-size: 0.85rem; font-weight: 650; }
+.ok { color: #0f766e; }
+.fail { color: #b42318; }
+pre.output { white-space: pre-wrap; font-size: 0.85rem; margin: 0;
+  font-family: ui-monospace, monospace; }
 """
 
 
 def on_startup() -> None:
     db.ensure_schema()
+    scheduler.restore()
 
 
 app, rt = fast_app(
@@ -106,6 +117,125 @@ app, rt = fast_app(
 @rt("/health")
 def health() -> PlainTextResponse:
     return PlainTextResponse("ok")
+
+
+@rt("/jobs")
+def jobs_view(msg: str | None = None, err: str | None = None):
+    state = db.get_job_state(JOB_NAME)
+    logs = db.list_job_logs(JOB_NAME, limit=100)
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    area = price_area()
+    counts = db.day_hour_counts(area, [today, tomorrow])
+    running = scheduler.running
+    enabled = state.enabled if state else False
+    status = "running" if running else "stopped"
+    last = "never"
+    last_cls = "muted"
+    if state and state.last_run_at:
+        last = fmt_when(state.last_run_at)
+        last_cls = "ok" if state.last_success else "fail"
+    log_rows = []
+    for item in logs:
+        log_rows.append(
+            Tr(
+                Td(fmt_when(item.logged_at)),
+                Td(item.instance),
+                Td("OK" if item.success else "FAIL", cls="ok" if item.success else "fail"),
+                Td(Pre(item.output, cls="output")),
+            )
+        )
+    log_table = (
+        Table(
+            Thead(Tr(Th("Time"), Th("Instance"), Th("Result"), Th("Output"))),
+            Tbody(*log_rows),
+        )
+        if log_rows
+        else P("No job log entries yet.")
+    )
+    controls = []
+    if running:
+        controls.append(
+            Form(
+                Button("Stop job", cls="secondary"),
+                method="post",
+                action="/jobs/stop",
+                enctype="application/x-www-form-urlencoded",
+            )
+        )
+    else:
+        controls.append(
+            Form(
+                Button("Start job"),
+                method="post",
+                action="/jobs/start",
+                enctype="application/x-www-form-urlencoded",
+            )
+        )
+    controls.append(
+        Form(
+            Button("Run now", cls="secondary"),
+            method="post",
+            action="/jobs/run",
+            enctype="application/x-www-form-urlencoded",
+        )
+    )
+    return _page(
+        _crumbs([("Jobs", None)]),
+        _flash(msg, err),
+        Article(
+            H2("Price job"),
+            P(
+                Strong(status.capitalize(), cls="badge " + ("ok" if running else "fail")),
+                Span(
+                    f" · enabled in database: {'yes' if enabled else 'no'}"
+                    f" · every {interval_hours()} hours"
+                    f" · instance {instance_name()}"
+                    f" · area {area}",
+                    cls="muted",
+                ),
+            ),
+            P(f"Last run: {last}", cls=last_cls),
+            P(
+                f"Stored hourly prices: today {counts.get(today, 0)} hours, "
+                f"tomorrow {counts.get(tomorrow, 0)} hours."
+            ),
+            P(f"Log file: {log_path()}", cls="muted"),
+            Div(*controls, cls="actions"),
+            **({"cls": "warn"} if not running else {}),
+        ),
+        H2("Log"),
+        P("Newest first. Each run is written to the log file and to PostgreSQL."),
+        log_table,
+        title="Jobs",
+    )
+
+
+@rt("/jobs/start", methods=["POST"])
+def jobs_start():
+    try:
+        message = scheduler.start(run_now=True)
+    except Exception as exc:
+        return _redirect("/jobs", err=str(exc))
+    return _redirect("/jobs", msg=message)
+
+
+@rt("/jobs/stop", methods=["POST"])
+def jobs_stop():
+    try:
+        message = scheduler.stop()
+    except Exception as exc:
+        return _redirect("/jobs", err=str(exc))
+    return _redirect("/jobs", msg=message)
+
+
+@rt("/jobs/run", methods=["POST"])
+def jobs_run():
+    try:
+        message = scheduler.run_once(trigger="manual")
+    except Exception as exc:
+        return _redirect("/jobs", err=str(exc))
+    return _redirect("/jobs", msg=message)
 
 
 @rt("/")
@@ -609,7 +739,11 @@ def _page(*content, title: str):
                     H1(A("Elprisen lige nu", href="/")),
                     P(subtitle, cls="muted"),
                 ),
-                A("Settings", href="/settings", cls="muted"),
+                Nav(
+                    A("Jobs", href="/jobs"),
+                    A("Settings", href="/settings"),
+                    cls="top-nav",
+                ),
                 cls="top",
             ),
             *nodes,

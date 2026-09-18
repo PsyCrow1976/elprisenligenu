@@ -6,3 +6,4 @@ venv/
 *.egg-info/
 .pytest_cache/
 .sesskey
+logs/

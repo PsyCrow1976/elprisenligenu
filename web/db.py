@@ -82,6 +82,27 @@ CREATE TABLE IF NOT EXISTS elprisenligenu.years (
     scraped_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (price_area, year)
 );
+
+CREATE TABLE IF NOT EXISTS elprisenligenu.job_logs (
+    id bigserial PRIMARY KEY,
+    logged_at timestamptz NOT NULL DEFAULT now(),
+    instance text NOT NULL,
+    job_name text NOT NULL,
+    success boolean NOT NULL,
+    output text NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS job_logs_logged_at_idx
+    ON elprisenligenu.job_logs (logged_at DESC);
+
+CREATE TABLE IF NOT EXISTS elprisenligenu.job_state (
+    job_name text PRIMARY KEY,
+    enabled boolean NOT NULL DEFAULT true,
+    interval_hours integer NOT NULL DEFAULT 12,
+    last_run_at timestamptz,
+    last_success boolean,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
 """
 
 
@@ -137,6 +158,26 @@ class YearRow:
     month_count: int
     avg_total_incl_vat: Decimal | None
     scraped_at: datetime
+
+
+@dataclass
+class JobLogRow:
+    id: int
+    logged_at: datetime
+    instance: str
+    job_name: str
+    success: bool
+    output: str
+
+
+@dataclass
+class JobStateRow:
+    job_name: str
+    enabled: bool
+    interval_hours: int
+    last_run_at: datetime | None
+    last_success: bool | None
+    updated_at: datetime
 
 
 def _env(name: str, default: str | None = None) -> str:
@@ -467,6 +508,128 @@ def _rollup_day(conn, price_area: str, day: date) -> None:
     )
 
 
+def day_hour_counts(price_area: str, days: list[date]) -> dict[date, int]:
+    if not days:
+        return {}
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT day, hour_count
+            FROM elprisenligenu.days
+            WHERE price_area = %s AND day = ANY(%s)
+            """,
+            (price_area, days),
+        ).fetchall()
+    return {row["day"]: int(row["hour_count"]) for row in rows}
+
+
+def ensure_job_state(job_name: str, interval_hours: int) -> JobStateRow:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO elprisenligenu.job_state (
+                job_name, enabled, interval_hours, updated_at
+            )
+            VALUES (%s, true, %s, now())
+            ON CONFLICT (job_name) DO UPDATE SET
+                interval_hours = EXCLUDED.interval_hours,
+                updated_at = now()
+            """,
+            (job_name, interval_hours),
+        )
+        conn.commit()
+    state = get_job_state(job_name)
+    if state is None:
+        raise RuntimeError(f"Failed to create job_state for {job_name}.")
+    return state
+
+
+def get_job_state(job_name: str) -> JobStateRow | None:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT job_name, enabled, interval_hours, last_run_at,
+                   last_success, updated_at
+            FROM elprisenligenu.job_state
+            WHERE job_name = %s
+            """,
+            (job_name,),
+        ).fetchone()
+    return _job_state_row(row) if row else None
+
+
+def set_job_enabled(job_name: str, enabled: bool) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE elprisenligenu.job_state
+            SET enabled = %s, updated_at = now()
+            WHERE job_name = %s
+            """,
+            (enabled, job_name),
+        )
+        conn.commit()
+
+
+def touch_job_run(job_name: str, success: bool) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE elprisenligenu.job_state
+            SET last_run_at = now(), last_success = %s, updated_at = now()
+            WHERE job_name = %s
+            """,
+            (success, job_name),
+        )
+        conn.commit()
+
+
+def insert_job_log(
+    *,
+    instance: str,
+    job_name: str,
+    success: bool,
+    output: str,
+) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO elprisenligenu.job_logs (
+                logged_at, instance, job_name, success, output
+            )
+            VALUES (now(), %s, %s, %s, %s)
+            """,
+            (instance, job_name, success, output),
+        )
+        conn.commit()
+
+
+def list_job_logs(job_name: str | None = None, limit: int = 100) -> list[JobLogRow]:
+    with connect() as conn:
+        if job_name:
+            rows = conn.execute(
+                """
+                SELECT id, logged_at, instance, job_name, success, output
+                FROM elprisenligenu.job_logs
+                WHERE job_name = %s
+                ORDER BY logged_at DESC, id DESC
+                LIMIT %s
+                """,
+                (job_name, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, logged_at, instance, job_name, success, output
+                FROM elprisenligenu.job_logs
+                ORDER BY logged_at DESC, id DESC
+                LIMIT %s
+                """,
+                (limit,),
+            ).fetchall()
+    return [_job_log_row(row) for row in rows]
+
+
 def _hour_row(row: dict[str, Any]) -> HourRow:
     return HourRow(**row)
 
@@ -493,4 +656,26 @@ def _year_row(row: dict[str, Any]) -> YearRow:
         month_count=int(row["month_count"]),
         avg_total_incl_vat=row["avg_total_incl_vat"],
         scraped_at=row["scraped_at"],
+    )
+
+
+def _job_log_row(row: dict[str, Any]) -> JobLogRow:
+    return JobLogRow(
+        id=int(row["id"]),
+        logged_at=row["logged_at"],
+        instance=row["instance"],
+        job_name=row["job_name"],
+        success=bool(row["success"]),
+        output=row["output"],
+    )
+
+
+def _job_state_row(row: dict[str, Any]) -> JobStateRow:
+    return JobStateRow(
+        job_name=row["job_name"],
+        enabled=bool(row["enabled"]),
+        interval_hours=int(row["interval_hours"]),
+        last_run_at=row["last_run_at"],
+        last_success=row["last_success"],
+        updated_at=row["updated_at"],
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -64,6 +64,45 @@ def price_api() -> PriceApi:
 
 def price_area() -> str:
     return settings().price_area
+
+
+def pull_today_and_tomorrow() -> str:
+    """Check the spot API and store today and tomorrow when they changed."""
+    today = datetime.now(TIMEZONE).date()
+    tomorrow = today + timedelta(days=1)
+    today_note = _sync_day(today, "today")
+    tomorrow_note = _sync_day(tomorrow, "tomorrow", allow_unpublished=True)
+    return f"{today_note} {tomorrow_note}".strip()
+
+
+def _sync_day(day: date, label: str, *, allow_unpublished: bool = False) -> str:
+    area = price_area()
+    iso = day.isoformat()
+    try:
+        spots = price_api().spot_hours(day)
+    except ApiError as exc:
+        if allow_unpublished and getattr(exc, "status_code", None) == 404:
+            existing = db.get_day(area, day)
+            if existing is not None:
+                return (
+                    f"{label} {iso} already stored "
+                    f"({existing.hour_count} hours); API not published."
+                )
+            return f"{label} {iso} not published yet."
+        raise
+    if not spots:
+        if allow_unpublished:
+            return f"{label} {iso} not published yet."
+        raise ApiError(f"No hourly prices returned for {iso}.")
+    existing = db.get_day(area, day)
+    if existing is not None and existing.hour_count == len(spots):
+        return f"{label} {iso} unchanged ({existing.hour_count} hours)."
+    hours = price_api().hours_for_day(day)
+    if not hours:
+        raise ApiError(f"No hourly prices returned for {iso}.")
+    db.replace_day(area, day, hours)
+    action = "updated" if existing is not None else "stored"
+    return f"{label} {iso} {action} ({len(hours)} hours)."
 
 
 def pull_day(day: date, *, replace: bool = False) -> PullResult:

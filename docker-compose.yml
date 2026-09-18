@@ -10,6 +10,9 @@ services:
     environment:
       WEB_HOST: "0.0.0.0"
       WEB_PORT: "8088"
+      JOB_LOG_PATH: "/var/log/elprisenligenu/prices.log"
+    volumes:
+      - ./logs:/var/log/elprisenligenu
     healthcheck:
       test:
         [

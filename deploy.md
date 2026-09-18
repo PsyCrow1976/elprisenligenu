@@ -69,6 +69,8 @@ NETSELSKAB_NAME=Radius Elnet A/S
 NETSELSKAB_CHARGE_CODE=DT_C_01
 SUPPLIER_NAME=Andel Energi
 SUPPLIER_DKK_KWH=0
+JOB_INTERVAL_HOURS=12
+JOB_LOG_PATH=/var/log/elprisenligenu/prices.log
 ```
 
 `POSTGRES_HOST` must be an address **the container** can reach:
@@ -127,8 +129,9 @@ Then the UI is `http://<unraid-ip>:8089`. `WEB_PORT` stays `8088` (port inside t
 
 - `http://<unraid-ip>:8088` shows Elprisen lige nu and the price area.
 - `http://<unraid-ip>:8088/health` returns `ok`.
-- On first start the app creates schema `elprisenligenu` in `POSTGRES_DB`.
+- On first start the app creates schema `elprisenligenu` and the hours/days/months/years, job_logs, and job_state tables in `POSTGRES_DB`.
 - Open today and use **Get data**. `/settings` shows the looked-up extra charges.
+- **Jobs** (`/jobs`) shows the 12-hour today/tomorrow price pull. It starts with the container. Host log file: `logs/prices.log` next to the compose file (mapped to `/var/log/elprisenligenu` in the container).
 
 ## Update
 

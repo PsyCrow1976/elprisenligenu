@@ -19,7 +19,7 @@ from script.settings import Settings
 DEFAULT_TIMEZONE = ZoneInfo("Europe/Copenhagen")
 SPOT_BASE_URL = "https://www.elprisenligenu.dk/api/v1/prices"
 DATAHUB_URL = "https://api.energidataservice.dk/dataset/DatahubPricelist"
-USER_AGENT = "elprisenligenu/0.0.1 (private home use)"
+USER_AGENT = "elprisenligenu/0.0.2 (private home use)"
 
 # Household-facing Energinet kWh charges (excl. VAT).
 ENERGINET_SYSTEM_NOTE = "Systemtarif"

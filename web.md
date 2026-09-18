@@ -11,6 +11,7 @@ Run from the repository root. API code stays in `script/`. This app lives in `we
 | `web/app.py` | FastHTML routes and pages |
 | `web/db.py` | PostgreSQL schema and queries |
 | `web/ingest.py` | Pulls APIs into the tables |
+| `web/jobs.py` | In-process 12-hour price job, file + database logging |
 | `web/__main__.py` | `python -m web` |
 | `Dockerfile` / `docker-compose.yml` | Unraid / Docker deploy |
 | `.env.example` | Environment template |
@@ -29,6 +30,32 @@ On startup the app creates schema `elprisenligenu` and these tables:
 - `elprisenligenu.hours` — one row per hour, with the four (plus optional supplier) kWh parts and totals
 - `elprisenligenu.days` / `months` / `years` — averages for browsing
 - `elprisenligenu.settings` — UI overrides for supplier tillæg and netselskab
+- `elprisenligenu.job_logs` — each job run: timestamp, instance name, success/fail, output
+- `elprisenligenu.job_state` — whether the price job is enabled, interval, last run
+
+Optional:
+
+- `JOB_INTERVAL_HOURS` — default `12`
+- `JOB_LOG_PATH` — default `/var/log/elprisenligenu/prices.log` in Docker; locally falls back to `logs/prices.log` if that path is not writable
+- `JOB_INSTANCE` — name written on each log row; defaults to the container hostname
+
+## Price job
+
+On container start the app starts a background job (not system cron). Every 12 hours it checks the elprisenligenu.dk spot file for **today and tomorrow**. If the day is missing or the hour count changed, it pulls spot plus Datahub charges and upserts `elprisenligenu.hours` (and the day/month/year rollups).
+
+Each run writes:
+
+1. A line in the log file (`OK` or `FAIL`, instance, output)
+2. A row in `elprisenligenu.job_logs`
+
+Tomorrow’s prices are usually published after 13:00 Copenhagen time. A run before that still stores today and logs that tomorrow is not published yet.
+
+Open **Jobs** in the web UI (`/jobs`) to:
+
+- See whether the job is running
+- Start or stop it (stop is remembered across container restarts)
+- Run a pull immediately
+- Read the PostgreSQL log
 
 ## Get data
 

@@ -25,6 +25,7 @@ Hourly spot prices are delivered by the free [Elpris API](https://www.elprisenli
 - Adds an optional supplier kWh tillæg (Andel Energi is not in Datahub)
 - Stores every hour in PostgreSQL for later use
 - FastHTML UI: years / months / days / hours, plus a settings page for the extras
+- Background job every 12 hours: check the spot API, then store today and tomorrow when they are new or changed (progress goes to a log file and PostgreSQL)
 
 Defaults match **2700 Brønshøj**: `DK2`, Radius Elnet (`5790000705689`, Nettarif C `DT_C_01`), Andel Energi as supplier name.
 
@@ -58,4 +59,4 @@ Python code lives in `script/`. Class docs: [script.md](script.md). Copy-paste: 
 
 ## Status
 
-Version `0.0.1`. See [CHANGELOG.md](CHANGELOG.md).
+Version `0.0.2`. See [CHANGELOG.md](CHANGELOG.md).
