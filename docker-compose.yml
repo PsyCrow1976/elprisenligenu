@@ -1,0 +1,34 @@
+services:
+  web:
+    build: .
+    container_name: elprisenligenu
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    env_file:
+      - .env
+    environment:
+      WEB_HOST: "0.0.0.0"
+      WEB_PORT: "8088"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8088/health')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - home
+    labels:
+      net.unraid.docker.webui: "http://[IP]:[PORT:8088]"
+      net.unraid.docker.description: "Danish hourly electricity prices"
+
+networks:
+  home:
+    name: home
+    external: true

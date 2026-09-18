@@ -1,0 +1,6 @@
+# Copy to docker-compose.override.yml if you are not using the shared `home` network.
+# Then set POSTGRES_HOST in .env to a reachable LAN address.
+
+# networks:
+#   home:
+#     external: false
