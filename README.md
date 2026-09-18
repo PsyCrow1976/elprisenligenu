@@ -4,6 +4,20 @@ Private Python app for Danish **hourly electricity prices**. It stores day-ahead
 
 Spot comes from the open [elprisenligenu.dk API](https://www.elprisenligenu.dk/elpris-api) (`PRISKLASSE` = `DK1` or `DK2`). Extra charges come from Energinet [DatahubPricelist](https://www.energidataservice.dk/tso-electricity/DatahubPricelist). Neither API needs a key.
 
+## Shoutout
+
+Hourly spot prices are delivered by the free [Elpris API](https://www.elprisenligenu.dk/elpris-api) from [Elprisen lige nu.dk](https://www.elprisenligenu.dk). Thanks for keeping Danish day-ahead prices open.
+
+<p>
+  <a href="https://www.elprisenligenu.dk">
+    <img
+      src="https://i.bnfcl.io/hva-koster-strommen/elpriser-leveret-af-elprisenligenu_LJNbbujZAX.png"
+      alt="Elpriser leveret af Elprisen lige nu.dk"
+      width="200"
+      height="45">
+  </a>
+</p>
+
 ## What it does
 
 - Pulls hourly (or 15-minute averaged to hourly) day-ahead prices for one price area
